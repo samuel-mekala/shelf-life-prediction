@@ -105,18 +105,9 @@ A **Python Tkinter GUI** enables non-technical users to:
 
 ```
 shelf-life-prediction/
-├── data/                        # Dataset (not included — download separately)
-├── models/
-│   └── shufflenet_shelf_life.pt # Saved model weights
-├── src/
-│   ├── train.py                 # Training script
-│   ├── evaluate.py              # Evaluation metrics
-│   ├── dataset.py               # Data loading & preprocessing
-│   └── early_stopping.py       # Early stopping callback
-├── gui/
-│   └── app.py                   # Tkinter GUI
-├── requirements.txt
-└── README.md
+├── train.py
+├── app.py
+└── requirements.txt
 ```
 
 ---
