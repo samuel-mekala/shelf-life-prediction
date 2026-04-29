@@ -1,0 +1,100 @@
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.env
+.venv
+
+# ============================================
+# Jupyter Notebooks
+# ============================================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ============================================
+# ML / Deep Learning
+# ============================================
+# Saved models (too large for GitHub)
+*.h5
+*.hdf5
+*.pkl
+*.pt
+*.pth
+*.onnx
+*.pb
+*.tflite
+
+# Training checkpoints
+checkpoints/
+fine_tune_checkpoints/
+runs/
+logs/
+
+# ============================================
+# Datasets (never upload raw data to GitHub)
+# ============================================
+data/
+datasets/
+*.csv
+*.json
+*.zip
+*.tar
+*.tar.gz
+*.npz
+*.npy
+
+# ============================================
+# IDE & Editor
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ============================================
+# OS Files
+# ============================================
+Thumbs.db
+Desktop.ini
+.Spotlight-V100
+.Trashes
+
+# ============================================
+# Credentials & Secrets (NEVER upload these)
+# ============================================
+.env
+*.env
+config.ini
+secrets.py
+credentials.json
+api_keys.txt
+
+# ============================================
+# Build & Distribution
+# ============================================
+dist/
+build/
+*.egg-info/
+.eggs/
+site/
+
+# ============================================
+# Logs & Temp Files
+# ============================================
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
