@@ -8,7 +8,7 @@
 
 ## 📌 Overview
 
-Food wastage is a massive global challenge — particularly for perishable produce. This project develops a **deep learning-based image classification system** that predicts the shelf life of fruits and vegetables (Fresh / Nearing Expiry / Rotten), helping grocery stores, warehouses, and supply chains **reduce waste and improve quality control**.
+Food wastage is a massive global challenge — particularly for perishable produce. This project develops a **deep learning-based image classification system** that predicts the shelf life of fruits and vegetables (Fresh / Rotten), helping grocery stores, warehouses, and supply chains **reduce waste and improve quality control**.
 
 The solution uses **ShuffleNet V2** with transfer learning, outperforming ResNet, MobileNet, and EfficientNet — all while being lightweight enough for **edge device deployment**.
 
@@ -105,10 +105,13 @@ A **Python Tkinter GUI** enables non-technical users to:
 
 ```
 shelf-life-prediction/
-├── train.py
-├── app.py
-└── requirements.txt
+├── train.py            # Full training pipeline with early stopping & evaluation
+├── app.py              # Tkinter GUI for real-time freshness prediction
+├── requirements.txt
+└── README.md
 ```
+
+> After training, `shufflenet_shelf_life.pth` (model weights) and `training_curves.png` are saved to the project root.
 
 ---
 
@@ -122,11 +125,14 @@ cd shelf-life-prediction
 # Install dependencies
 pip install -r requirements.txt
 
-# Train the model
-python src/train.py
+# Place your dataset in ./data/shelf_life/
+# Folder structure: data/shelf_life/Fresh/ and data/shelf_life/Rotten/
 
-# Launch GUI
-python gui/app.py
+# Train the model
+python train.py
+
+# Launch GUI (load the saved .pth weights)
+python app.py
 ```
 
 ---
