@@ -159,11 +159,9 @@ shelf-life-prediction/
 │       └── ci.yml                  # GitHub Actions CI
 ├── images/
 │   ├── training_curves.png         # Loss + Accuracy vs Epochs
-│   ├── gui_screenshot.png          # Tkinter GUI screenshot
 │   ├── system_flowchart.png        # System flow diagram
-│   ├── roc_curve.png               # ROC AUC curve
-│   ├── precision_recall_curve.png  # PR curve
-│   └── system_architecture.png    # Architecture diagram
+│   ├── gui_screenshot.png          # Tkinter GUI screenshot
+│   └── gui_screenshot2.png         # Tkinter GUI screenshot
 ├── train.py                        # ShuffleNet V2 training pipeline
 ├── app.py                          # Tkinter GUI — upload image → predict freshness
 ├── shelf_life_prediction.ipynb     # Full notebook with explanations
