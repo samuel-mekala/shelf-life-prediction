@@ -158,7 +158,7 @@ shelf-life-prediction/
 │   └── workflows/
 │       └── ci.yml                  # GitHub Actions CI
 ├── images/
-│   ├── training_curves.png         # Loss + Accuracy vs Epochs
+│   ├── training_curves.png         # Training Curves
 │   ├── system_flowchart.png        # System flow diagram
 │   ├── gui_screenshot.png          # Tkinter GUI screenshot
 │   └── gui_screenshot2.png         # Tkinter GUI screenshot
