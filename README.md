@@ -78,7 +78,7 @@ Input: Produce Image
 ## 🖥️ Tkinter GUI — Real-Time Freshness Prediction
 
 ![GUI Screenshot](images/gui_screenshot.png) 
-![ROC Curve](images/roc_curve.png) 
+![ROC Curve](images/gui_screenshot_2.png) 
 
 A **Python Tkinter GUI** enables non-technical users to:
 1. Upload an image of a fruit/vegetable via file dialog
