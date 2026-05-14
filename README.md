@@ -1,8 +1,12 @@
-# 🍎 Predicting Shelf Life of Fruits & Vegetables Using Deep Learning
+# 🍎 Shelf Life Prediction of Fruits & Vegetables Using Deep Learning
 
 > **Capstone Project** · VIT-AP University · Jul–Dec 2024  
 > **Team:** Satyala Murali Karthik · **Mekala Samuel** · Yelakanti Ramu  
 > **Guide:** Dr. S. Kalyani · School of Electronics Engineering
+
+[![Python](https://img.shields.io/badge/Python-3.10-blue?style=flat-square&logo=python)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0-EE4C2C?style=flat-square&logo=pytorch)](https://pytorch.org)
+[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=github-actions)](/.github/workflows/ci.yml)
 
 ---
 
@@ -14,9 +18,44 @@ The solution uses **ShuffleNet V2** with transfer learning, outperforming ResNet
 
 ---
 
+## 🏗️ System Architecture
+ 
+![System Flowchart](images/system_flowchart.png)
+ 
+```
+Input: Produce Image
+            │
+            ▼
+┌──────────────────────────┐
+│    Image Preprocessing    │
+│  • Resize → 256×256      │
+│  • CenterCrop → 224×224  │
+│  • Normalize (ImageNet)  │
+│  • 70% / 15% / 15% split │
+└───────────┬──────────────┘
+            │
+            ▼
+┌──────────────────────────┐
+│   ShuffleNet V2          │
+│   (Pre-trained ImageNet) │
+│   + Dropout + Linear FC  │
+└───────────┬──────────────┘
+            │
+            ▼
+     Fresh / Rotten
+   + Confidence Score
+   + Days Remaining (GUI)
+```
+ 
+---
+
 ## 🏆 Results
 
-### Our Model vs State-of-the-Art
+### Training Curves
+ 
+![Training Curves](images/training_curves.png)
+
+### Model Comparison
 
 | Model | Accuracy | F1 Score | Remarks |
 |---|---|---|---|
@@ -34,15 +73,43 @@ The solution uses **ShuffleNet V2** with transfer learning, outperforming ResNet
 | **ROC AUC** | **97.10%** |
 | **Precision-Recall AUC** | **95.85%** |
 
+### ROC & Precision-Recall Curves
+ 
+| ROC Curve | Precision-Recall Curve |
+|---|---|
+| ![ROC Curve](images/roc_curve.png) | ![PR Curve](images/precision_recall_curve.png) |
+ 
 ---
 
-## 🧠 Why ShuffleNet V2?
+## 🖥️ Tkinter GUI — Real-Time Freshness Prediction
+
+![GUI Screenshot](images/gui_screenshot.png)
+
+A **Python Tkinter GUI** enables non-technical users to:
+1. Upload an image of a fruit/vegetable via file dialog
+2. View the uploaded image in the app canvas
+3. Receive the freshness prediction + confidence score + estimated days remaining (for fresh items)
+
+---
+
+## 🔑 Key Engineering Decisions
+
+**🧠 Why ShuffleNet V2 over ResNet/MobileNet?**
 
 ShuffleNet V2 uses **channel split + shuffle operations** to achieve a remarkable balance between computational efficiency and classification accuracy — ideal for:
 - ✅ **Resource-constrained devices** (Raspberry Pi, mobile)
 - ✅ **Real-time inference** in grocery/warehouse environments
 - ✅ **High accuracy** without expensive compute
 
+**Why transfer learning?**
+Freshness detection relies on color gradients, texture patterns — all well-captured by ImageNet pre-training. Fine-tuning converges in <10 epochs vs 50+ from scratch.
+ 
+**Why Dropout in the classifier head?**
+Prevents the FC layer from overfitting to specific lighting conditions in the training dataset.
+ 
+**Why StepLR scheduler (γ=0.1, step=7)?**
+Aggressive LR decay after 7 epochs forces the model to refine rather than keep exploring.
+ 
 ---
 
 ## ⚙️ Methodology
@@ -80,61 +147,62 @@ criterion = nn.CrossEntropyLoss()
 
 ---
 
-## 🖥️ Tkinter GUI
-
-A **Python Tkinter GUI** enables non-technical users to:
-1. Upload an image of a fruit/vegetable via file dialog
-2. View the uploaded image in the app canvas
-3. Receive the freshness prediction + confidence score + estimated days remaining (for fresh items)
-
----
-
 ## 🛠️ Tech Stack
-
+ 
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
-![Torchvision](https://img.shields.io/badge/Torchvision-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
 ![Scikit-learn](https://img.shields.io/badge/Scikit--learn-F7931E?style=flat-square&logo=scikit-learn&logoColor=white)
-![Matplotlib](https://img.shields.io/badge/Matplotlib-11557c?style=flat-square)
-![Pillow](https://img.shields.io/badge/Pillow-blue?style=flat-square)
-![Tkinter](https://img.shields.io/badge/Tkinter-GUI-blue?style=flat-square)
-
+![Tkinter](https://img.shields.io/badge/Tkinter-Desktop%20GUI-blue?style=flat-square)
 ---
 
 ## 📁 Project Structure
-
+ 
 ```
 shelf-life-prediction/
-├── train.py            # Full training pipeline with early stopping & evaluation
-├── app.py              # Tkinter GUI for real-time freshness prediction
+├── .github/
+│   └── workflows/
+│       └── ci.yml                  # GitHub Actions CI
+├── images/
+│   ├── training_curves.png         # Loss + Accuracy vs Epochs
+│   ├── gui_screenshot.png          # Tkinter GUI screenshot
+│   ├── system_flowchart.png        # System flow diagram
+│   ├── roc_curve.png               # ROC AUC curve
+│   ├── precision_recall_curve.png  # PR curve
+│   └── system_architecture.png    # Architecture diagram
+├── train.py                        # ShuffleNet V2 training pipeline
+├── app.py                          # Tkinter GUI — upload image → predict freshness
+├── shelf_life_prediction.ipynb     # Full notebook with explanations
 ├── requirements.txt
 └── README.md
 ```
-
-> After training, `shufflenet_shelf_life.pth` (model weights) and `training_curves.png` are saved to the project root.
+ 
+> After training: `shufflenet_shelf_life.pth` saved to project root.
 
 ---
 
 ## 🚀 How to Run
-
+ 
 ```bash
 # Clone the repo
 git clone https://github.com/samuel-mekala/shelf-life-prediction.git
 cd shelf-life-prediction
-
+ 
 # Install dependencies
 pip install -r requirements.txt
-
-# Place your dataset in ./data/shelf_life/
-# Folder structure: data/shelf_life/Fresh/ and data/shelf_life/Rotten/
-
+ 
+# Place dataset in ./data/shelf_life/
+# Structure: data/shelf_life/Fresh/ and data/shelf_life/Rotten/
+ 
 # Train the model
 python train.py
-
-# Launch GUI (load the saved .pth weights)
+ 
+# Launch GUI
 python app.py
+ 
+# Or explore full notebook
+jupyter notebook shelf_life_prediction.ipynb
 ```
-
+ 
 ---
 
 ## 🔮 Future Work
