@@ -52,9 +52,17 @@ Input: Produce Image
 ## 🏆 Results
 
 ### Training Curves
- 
+ **ROC & Precision-Recall Curves**
+
 ![Training Curves](images/training_curves.png)
 
+### Final Metrics on Test Set
+| Metric | Score |
+|---|---|
+| **Accuracy** | **97.25%** |
+| **F1 Score** | **96.80%** |
+| **ROC AUC** | **97.10%** |
+| **Precision-Recall AUC** | **95.85%** |
 ### Model Comparison
 
 | Model | Accuracy | F1 Score | Remarks |
@@ -64,26 +72,12 @@ Input: Produce Image
 | EfficientNet-B0 | 95.75% | 95.25% | Good accuracy/speed balance |
 | DenseNet-121 | 95.10% | 94.60% | Slower than ShuffleNet |
 | ResNet-18 | 94.85% | 94.10% | Reliable but computationally heavier |
-
-### Final Metrics on Test Set
-| Metric | Score |
-|---|---|
-| **Accuracy** | **97.25%** |
-| **F1 Score** | **96.80%** |
-| **ROC AUC** | **97.10%** |
-| **Precision-Recall AUC** | **95.85%** |
-
-### ROC & Precision-Recall Curves
- 
-| ROC Curve | Precision-Recall Curve |
-|---|---|
-| ![ROC Curve](images/roc_curve.png) | ![PR Curve](images/precision_recall_curve.png) |
  
 ---
 
 ## 🖥️ Tkinter GUI — Real-Time Freshness Prediction
 
-![GUI Screenshot](images/gui_screenshot.png)
+| ![GUI Screenshot](images/gui_screenshot.png) | ![ROC Curve](images/roc_curve.png) |
 
 A **Python Tkinter GUI** enables non-technical users to:
 1. Upload an image of a fruit/vegetable via file dialog
