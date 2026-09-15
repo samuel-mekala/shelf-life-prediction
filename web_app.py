@@ -131,7 +131,7 @@ with tabs[0]:
         image_to_process = None
         if uploaded_file is not None:
             image_to_process = Image.open(uploaded_file)
-            st.image(image_to_process, caption="Uploaded Image", use_column_width=True)
+            st.image(image_to_process, caption="Uploaded Image", use_container_width=True)
             
             # Auto-infer produce type from filename if matching
             filename = uploaded_file.name.title()
@@ -200,7 +200,7 @@ with tabs[1]:
 
     if os.path.exists("images/training_curves.png"):
         st.markdown("### 📈 Loss and Accuracy Curves across Epochs")
-        st.image("images/training_curves.png", caption="Training & Validation Performance Curves", use_column_width=True)
+        st.image("images/training_curves.png", caption="Training & Validation Performance Curves", use_container_width=True)
 
 # ─── TAB 3: METHODOLOGY ───────────────────────────────────────────────────────
 
