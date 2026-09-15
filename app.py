@@ -24,7 +24,6 @@ CLASS_NAMES = {
     1: "Rotten",
 }
 
-# Shelf life ranges in days for various fresh produce items
 SHELF_LIFE_RANGES = {
     "Tomato": "10-15",
     "Apple": "7-12",
@@ -58,7 +57,7 @@ def load_model(num_classes=2):
             model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
             print(f"Model loaded successfully from {MODEL_PATH}")
         except Exception as e:
-            print(f"Warning: Could not load state dict ({e}). Using initialized ShuffleNet V2.")
+            print(f"Warning: Could not load state dict ({e}). Using baseline weights.")
     else:
         print(f"Notice: {MODEL_PATH} not found. Running with ShuffleNet V2 baseline weights.")
     model.eval()
@@ -91,7 +90,7 @@ class ShelfLifeApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Image Classifier - Shelf Life Prediction")
-        self.geometry("620x650")
+        self.geometry("620x680")
         self.configure(bg="#ffffff")
         self.image_path = None
         self._build_ui()
@@ -167,7 +166,7 @@ class ShelfLifeApp(tk.Tk):
             wraplength=550,
             justify="center"
         )
-        self.result_label.pack(pady=20)
+        self.result_label.pack(pady=15)
 
     def _choose_image(self):
         path = filedialog.askopenfilename(
@@ -178,20 +177,17 @@ class ShelfLifeApp(tk.Tk):
 
         self.image_path = path
         
-        # Display image preview
         img = Image.open(path).convert("RGB")
         img.thumbnail((260, 260))
         self._tk_img = ImageTk.PhotoImage(img)
         self.img_label.configure(image=self._tk_img)
 
-        # Infer produce item from filename if known, otherwise use selected dropdown value
         filename_base = os.path.splitext(os.path.basename(path))[0].title()
         for known_item in SHELF_LIFE_RANGES.keys():
             if known_item.lower() in filename_base.lower():
                 self.item_var.set(known_item)
                 break
 
-        # Run Prediction immediately upon image selection (matching Report behavior)
         self._run_prediction()
 
     def _run_prediction(self):
@@ -203,8 +199,10 @@ class ShelfLifeApp(tk.Tk):
         selected_item = self.item_var.get()
         days_range = SHELF_LIFE_RANGES.get(selected_item, "3-7")
 
-        if label == "Fresh":
-            # Exact format specified in Page 19 of Capstone Report
+        if confidence < 0.65:
+            output_msg = f"⚠️ Low Confidence ({confidence_pct:.1f}%): Image does not strongly match produce features. Please upload a clear fruit/vegetable image."
+            self.result_label.configure(fg="#e65100") # Dark Orange
+        elif label == "Fresh":
             output_msg = f"Predicted: {selected_item}({days_range}) days of shelf life left ({confidence_pct:.2f}% confidence)"
             self.result_label.configure(fg="#2e7d32")  # Dark Green
         else:
