@@ -1,6 +1,6 @@
 """
 Shelf Life Prediction of Fruits and Vegetables
-Using ShuffleNet V2 with Transfer Learning
+Using ShuffleNet V2 with Transfer Learning (28 Fine-Grained Produce & Freshness Classes)
 
 Capstone Project — VIT-AP University, 2024
 Authors: Satyala Murali Karthik, Mekala Samuel, Yelakanti Ramu
@@ -9,6 +9,7 @@ Guide: Dr. S. Kalyani
 
 import os
 import glob
+import json
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,8 +20,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms, models
 from torch.optim.lr_scheduler import StepLR
-from sklearn.metrics import (f1_score, roc_auc_score,
-                             precision_recall_curve, accuracy_score, auc)
+from sklearn.metrics import f1_score, accuracy_score
 
 # ─── Device Selection ─────────────────────────────────────────────────────────
 
@@ -33,52 +33,54 @@ else:
 
 print(f"Using compute device: {device}", flush=True)
 
-# ─── Custom Dataset Class ─────────────────────────────────────────────────────
+# ─── 28 Fine-Grained Produce Dataset Class ────────────────────────────────────
 
-class ProduceDataset(Dataset):
-    def __init__(self, root_dir, transform=None, max_samples_per_class=2000):
+class FineGrainedProduceDataset(Dataset):
+    def __init__(self, root_dir, transform=None, max_samples_per_class=1200):
         self.transform = transform
         self.samples = []
+        self.class_names = []
 
-        fresh_samples = []
-        rotten_samples = []
-
-        produce_dirs = [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
+        subdirs = sorted([d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))])
         
-        for p_dir in produce_dirs:
-            p_path = os.path.join(root_dir, p_dir)
-            fresh_dir = os.path.join(p_path, 'fresh')
-            if not os.path.exists(fresh_dir):
-                fresh_dir = os.path.join(p_path, 'Fresh')
-            
-            rotten_dir = os.path.join(p_path, 'rotten')
-            if not os.path.exists(rotten_dir):
-                rotten_dir = os.path.join(p_path, 'Rotten')
+        class_to_idx = {}
+        idx = 0
+        for d in subdirs:
+            for status in ['fresh', 'rotten']:
+                c_name = f"{d}_{status}"
+                class_to_idx[c_name] = idx
+                self.class_names.append(c_name)
+                idx += 1
 
-            if os.path.exists(fresh_dir):
-                for ext in ('*.jpg', '*.jpeg', '*.png', '*.webp', '*.JPG', '*.PNG'):
-                    for img_p in glob.glob(os.path.join(fresh_dir, ext)):
-                        fresh_samples.append((img_p, 0))
+        self.class_to_idx = class_to_idx
 
-            if os.path.exists(rotten_dir):
-                for ext in ('*.jpg', '*.jpeg', '*.png', '*.webp', '*.JPG', '*.PNG'):
-                    for img_p in glob.glob(os.path.join(rotten_dir, ext)):
-                        rotten_samples.append((img_p, 1))
+        # Collect images for each class
+        for d in subdirs:
+            p_path = os.path.join(root_dir, d)
+            for status in ['fresh', 'rotten']:
+                c_name = f"{d}_{status}"
+                c_idx = class_to_idx[c_name]
+                
+                s_dir = os.path.join(p_path, status)
+                if not os.path.exists(s_dir):
+                    s_dir = os.path.join(p_path, status.title())
 
-        # Sample up to max_samples_per_class for balanced, fast, high-accuracy fine-tuning
-        np.random.seed(42)
-        if len(fresh_samples) > max_samples_per_class:
-            fresh_indices = np.random.choice(len(fresh_samples), max_samples_per_class, replace=False)
-            fresh_samples = [fresh_samples[i] for i in fresh_indices]
+                img_list = []
+                if os.path.exists(s_dir):
+                    for ext in ('*.jpg', '*.jpeg', '*.png', '*.webp', '*.JPG', '*.PNG'):
+                        img_list.extend(glob.glob(os.path.join(s_dir, ext)))
 
-        if len(rotten_samples) > max_samples_per_class:
-            rotten_indices = np.random.choice(len(rotten_samples), max_samples_per_class, replace=False)
-            rotten_samples = [rotten_samples[i] for i in rotten_indices]
+                # Subsample per class for balanced, fast, high-precision training
+                np.random.seed(42)
+                if len(img_list) > max_samples_per_class:
+                    selected_indices = np.random.choice(len(img_list), max_samples_per_class, replace=False)
+                    img_list = [img_list[i] for i in selected_indices]
 
-        self.samples = fresh_samples + rotten_samples
+                for img_p in img_list:
+                    self.samples.append((img_p, c_idx))
+
         np.random.shuffle(self.samples)
-
-        print(f"Dataset loaded: {len(self.samples)} balanced samples ({sum(1 for _, l in self.samples if l==0)} Fresh, {sum(1 for _, l in self.samples if l==1)} Rotten).", flush=True)
+        print(f"Dataset loaded: {len(self.samples)} total samples across {len(self.class_names)} fine-grained classes.", flush=True)
 
     def __len__(self):
         return len(self.samples)
@@ -93,9 +95,20 @@ class ProduceDataset(Dataset):
             image = self.transform(image)
         return image, label
 
-# ─── Dataset Transformations ─────────────────────────────────────────────────
+# ─── Data Transformations (with Augmentation) ─────────────────────────────────
 
-transform = transforms.Compose([
+train_transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(15),
+    transforms.ColorJitter(brightness=0.1, contrast=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225]),
+])
+
+val_transform = transforms.Compose([
     transforms.Resize((256, 256)),
     transforms.CenterCrop(224),
     transforms.ToTensor(),
@@ -103,69 +116,47 @@ transform = transforms.Compose([
                          std=[0.229, 0.224, 0.225]),
 ])
 
-# ─── Evaluation Metrics ───────────────────────────────────────────────────────
-
-def compute_metrics(y_true, y_pred, y_probs):
-    acc = accuracy_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
-    try:
-        pos_probs = y_probs[:, 1] if y_probs.ndim > 1 and y_probs.shape[1] > 1 else y_probs
-        auc_score = roc_auc_score(y_true, pos_probs)
-    except Exception:
-        auc_score = 0.5
-
-    try:
-        pos_probs = y_probs[:, 1] if y_probs.ndim > 1 and y_probs.shape[1] > 1 else y_probs
-        precision, recall, _ = precision_recall_curve(y_true, pos_probs, pos_label=1)
-        auc_pr = auc(recall, precision)
-    except Exception:
-        auc_pr = 0.5
-        precision, recall = np.array([0]), np.array([0])
-
-    return acc, f1, auc_score, precision, recall, auc_pr
-
 # ─── Main Training Pipeline ───────────────────────────────────────────────────
 
-def train_model(batch_size=128, num_epochs=4, learning_rate=0.003, dropout_rate=0.5, dataset_dir=None):
-    if dataset_dir is None:
-        if os.path.exists('Data'):
-            dataset_dir = 'Data'
-        else:
-            dataset_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'shelf_life')
-    
+def train_model(batch_size=128, num_epochs=6, learning_rate=0.003, dropout_rate=0.5, dataset_dir='Data'):
     if not os.path.exists(dataset_dir):
         print(f"Error: Dataset directory '{dataset_dir}' not found.", flush=True)
         return None
 
-    dataset = ProduceDataset(root_dir=dataset_dir, transform=transform, max_samples_per_class=2000)
+    full_dataset = FineGrainedProduceDataset(root_dir=dataset_dir, transform=train_transform, max_samples_per_class=1200)
 
-    train_size = int(0.7 * len(dataset))
-    val_size   = int(0.15 * len(dataset))
-    test_size  = len(dataset) - train_size - val_size
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset, [train_size, val_size, test_size]
-    )
+    # Save class mapping JSON for app inference
+    class_mapping = {idx: name for idx, name in enumerate(full_dataset.class_names)}
+    with open("class_mapping.json", "w") as f:
+        json.dump(class_mapping, f, indent=2)
+    print("Class mapping saved to class_mapping.json", flush=True)
+
+    train_size = int(0.75 * len(full_dataset))
+    val_size   = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+
+    # Assign val_transform to validation dataset
+    val_dataset.dataset.transform = val_transform
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
     val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=0)
-    test_loader  = DataLoader(test_dataset,  batch_size=batch_size, shuffle=False, num_workers=0)
 
+    num_classes = len(full_dataset.class_names)
     model = models.shufflenet_v2_x1_0(weights=models.ShuffleNet_V2_X1_0_Weights.DEFAULT)
     model.fc = nn.Sequential(
         nn.Dropout(p=dropout_rate),
-        nn.Linear(model.fc.in_features, 2)
+        nn.Linear(model.fc.in_features, num_classes)
     )
     model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = StepLR(optimizer, step_size=7, gamma=0.1)
+    scheduler = StepLR(optimizer, step_size=4, gamma=0.2)
 
     train_loss_values, val_loss_values = [], []
     train_acc_values,  val_acc_values  = [], []
-    epoch_times = []
 
-    print(f"--- Starting Fine-Tuning ShuffleNet V2 on {len(dataset)} samples ---", flush=True)
+    print(f"\n--- Fine-Tuning ShuffleNet V2 on {num_classes} Classes ({len(full_dataset)} Samples) ---", flush=True)
     total_batches = len(train_loader)
 
     for epoch in range(num_epochs):
@@ -186,7 +177,7 @@ def train_model(batch_size=128, num_epochs=4, learning_rate=0.003, dropout_rate=
             correct_train += (predicted == labels).sum().item()
             total_train += labels.size(0)
 
-            if (i + 1) % 5 == 0 or (i + 1) == total_batches:
+            if (i + 1) % 10 == 0 or (i + 1) == total_batches:
                 current_acc = correct_train / total_train
                 current_loss = train_loss / total_train
                 print(f"Epoch [{epoch+1}/{num_epochs}] Batch [{i+1}/{total_batches}] - Loss: {current_loss:.4f} Acc: {current_acc*100:.2f}%", flush=True)
@@ -199,7 +190,7 @@ def train_model(batch_size=128, num_epochs=4, learning_rate=0.003, dropout_rate=
         # Validation
         model.eval()
         val_loss, correct_val, total_val = 0.0, 0, 0
-        all_labels, all_preds, all_probs = [], [], []
+        all_labels, all_preds = [], []
 
         with torch.no_grad():
             for inputs, labels in val_loader:
@@ -214,21 +205,16 @@ def train_model(batch_size=128, num_epochs=4, learning_rate=0.003, dropout_rate=
 
                 all_labels.extend(labels.cpu().numpy())
                 all_preds.extend(predicted.cpu().numpy())
-                all_probs.extend(torch.softmax(outputs, dim=1).cpu().numpy())
 
         val_loss /= total_val
         val_acc = correct_val / total_val
         val_loss_values.append(val_loss)
         val_acc_values.append(val_acc)
 
-        acc, f1, auc_val, _, _, _ = compute_metrics(
-            np.array(all_labels), np.array(all_preds), np.array(all_probs)
-        )
-
+        f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=0)
         epoch_time = time.time() - start_time
-        epoch_times.append(epoch_time)
 
-        print(f"\n>> Epoch [{epoch+1}/{num_epochs}] Completed in {epoch_time:.2f}s | Train Acc: {train_acc*100:.2f}% | Val Acc: {val_acc*100:.2f}% | F1: {f1:.4f} | AUC: {auc_val:.4f}\n", flush=True)
+        print(f">> Epoch [{epoch+1}/{num_epochs}] Finished in {epoch_time:.2f}s | Train Acc: {train_acc*100:.2f}% | Val Acc: {val_acc*100:.2f}% | F1: {f1:.4f}\n", flush=True)
 
         scheduler.step()
 
@@ -263,4 +249,4 @@ def train_model(batch_size=128, num_epochs=4, learning_rate=0.003, dropout_rate=
     return model
 
 if __name__ == "__main__":
-    train_model(batch_size=128, num_epochs=4, learning_rate=0.003, dropout_rate=0.5)
+    train_model(batch_size=128, num_epochs=6, learning_rate=0.003, dropout_rate=0.5)

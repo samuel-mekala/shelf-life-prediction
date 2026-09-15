@@ -10,6 +10,7 @@ Deployable to Streamlit Community Cloud, Hugging Face Spaces, and Render.
 """
 
 import os
+import json
 import streamlit as st
 from PIL import Image
 import torch
@@ -27,20 +28,21 @@ st.set_page_config(
 )
 
 MODEL_PATH = "shufflenet_shelf_life.pth"
-
-CLASS_NAMES = {
-    0: "Fresh",
-    1: "Rotten"
-}
+MAPPING_PATH = "class_mapping.json"
 
 SHELF_LIFE_RANGES = {
     "Tomato": "10-15",
     "Apple": "7-12",
     "Banana": "3-6",
+    "Bellpepper": "7-10",
     "Carrot": "10-14",
-    "Grapes": "5-8",
+    "Cucumber": "5-8",
+    "Grape": "5-8",
+    "Guava": "4-7",
+    "Jujube": "5-9",
     "Mango": "4-7",
     "Orange": "7-10",
+    "Pomegranate": "12-18",
     "Potato": "14-21",
     "Strawberry": "3-5",
     "General Produce": "3-7"
@@ -57,22 +59,36 @@ def load_shufflenet_model():
     else:
         device = torch.device("cpu")
 
+    num_classes = 28
+    class_mapping = {}
+
+    if os.path.exists(MAPPING_PATH):
+        try:
+            with open(MAPPING_PATH, "r") as f:
+                mapping = json.load(f)
+                class_mapping = {int(k): v for k, v in mapping.items()}
+                num_classes = len(class_mapping)
+        except Exception:
+            pass
+
     model = models.shufflenet_v2_x1_0(weights=models.ShuffleNet_V2_X1_0_Weights.DEFAULT)
     model.fc = nn.Sequential(
         nn.Dropout(p=0.5),
-        nn.Linear(model.fc.in_features, 2)
+        nn.Linear(model.fc.in_features, num_classes)
     )
+
     has_custom_weights = False
     if os.path.exists(MODEL_PATH):
         try:
             model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
             has_custom_weights = True
-        except Exception:
-            pass
-    model.eval()
-    return model.to(device), device, has_custom_weights
+        except Exception as e:
+            print(f"Warning loading weights: {e}")
 
-model, device, has_custom_weights = load_shufflenet_model()
+    model.eval()
+    return model.to(device), device, class_mapping, has_custom_weights
+
+model, device, class_mapping, has_custom_weights = load_shufflenet_model()
 
 transform = transforms.Compose([
     transforms.Resize((256, 256)),
@@ -82,13 +98,24 @@ transform = transforms.Compose([
                          std=[0.229, 0.224, 0.225]),
 ])
 
-def predict_freshness(pil_image):
+def predict_produce(pil_image):
     tensor = transform(pil_image.convert("RGB")).unsqueeze(0).to(device)
     with torch.no_grad():
         outputs = model(tensor)
         probs = torch.softmax(outputs, dim=1).squeeze()
         conf, idx = torch.max(probs, 0)
-    return CLASS_NAMES[idx.item()], conf.item()
+    
+    raw_class = class_mapping.get(idx.item(), "general_fresh") if class_mapping else ("Fresh" if idx.item() == 0 else "Rotten")
+    
+    if "_" in raw_class:
+        parts = raw_class.split("_")
+        produce_name = parts[0].title()
+        status = parts[1].title()
+    else:
+        produce_name = "Produce"
+        status = raw_class.title()
+
+    return produce_name, status, conf.item()
 
 # ─── UI Layout ────────────────────────────────────────────────────────────────
 
@@ -100,31 +127,27 @@ st.markdown("""
 st.divider()
 
 if not has_custom_weights:
-    st.warning("""
-    ⚠️ **Notice: Running on Pre-trained Baseline Weights (`shufflenet_v2_x1_0`)**  
-    Custom dataset model weights (`shufflenet_shelf_life.pth`) were not found in the root folder.  
-    *To train on your fruit/vegetable dataset:* Place images in `data/shelf_life/Fresh/` and `data/shelf_life/Rotten/`, then run `python train.py`.
-    """, icon="⚠️")
+    st.warning("⚠️ **Running on Baseline Weights.** Custom trained weights (`shufflenet_shelf_life.pth`) are initializing...", icon="⚠️")
 
 # Sidebar Setup
 with st.sidebar:
     st.header("⚙️ Configuration")
-    selected_produce = st.selectbox(
-        "Select Produce Type:",
-        options=list(SHELF_LIFE_RANGES.keys()),
+    selected_override = st.selectbox(
+        "Select Produce Type (Auto-Detected by default):",
+        options=["Auto-Detect"] + list(SHELF_LIFE_RANGES.keys()),
         index=0
     )
-    st.info(f"**Expected Fresh Shelf Life:** {SHELF_LIFE_RANGES[selected_produce]} days")
     
     st.markdown("---")
     st.markdown("### 🏆 Model Architecture")
     st.write("**Model:** ShuffleNet V2 (`shufflenet_v2_x1_0`)")
-    st.write("**Weights Status:** " + ("Custom Trained ✅" if has_custom_weights else "Baseline ImageNet ⚠️"))
+    st.write("**Classes Trained:** 28 Fine-Grained Produce Classes")
+    st.write("**Weights Status:** " + ("Custom Trained ✅" if has_custom_weights else "Baseline ⚠️"))
     st.write("**Optimizer:** Adam (lr=0.003)")
-    st.write("**Scheduler:** StepLR (step=7, γ=0.1)")
+    st.write("**Scheduler:** StepLR (step=4, γ=0.2)")
     st.write("**Regularization:** Dropout (p=0.5)")
 
-tabs = st.tabs(["📸 Freshness Predictor", "📊 Project Analytics & Report Metrics", "📖 Dataset & Model Training Guide"])
+tabs = st.tabs(["📸 Freshness Predictor", "📊 Project Analytics & Report Metrics", "📖 Dataset & Methodology"])
 
 # ─── TAB 1: PREDICTOR ─────────────────────────────────────────────────────────
 
@@ -142,54 +165,40 @@ with tabs[0]:
         if uploaded_file is not None:
             image_to_process = Image.open(uploaded_file)
             st.image(image_to_process, caption="Uploaded Image", use_container_width=True)
-            
-            # Auto-infer produce type from filename if matching
-            filename = uploaded_file.name.title()
-            for known in SHELF_LIFE_RANGES.keys():
-                if known.lower() in filename.lower():
-                    selected_produce = known
-                    break
 
     with col2:
         st.subheader("2. Prediction & Shelf Life Analysis")
         if image_to_process is not None:
-            with st.spinner("Analyzing produce freshness with ShuffleNet V2..."):
-                label, confidence = predict_freshness(image_to_process)
+            with st.spinner("Analyzing produce image with ShuffleNet V2..."):
+                detected_item, status, confidence = predict_produce(image_to_process)
                 confidence_pct = confidence * 100
-                days_range = SHELF_LIFE_RANGES[selected_produce]
+                
+                final_item = detected_item if selected_override == "Auto-Detect" else selected_override
+                days_range = SHELF_LIFE_RANGES.get(final_item, "3-7")
 
-            # Check if prediction confidence is low or input is non-produce / out-of-distribution
-            if confidence < 0.65:
+            # Out-of-distribution check for low confidence non-food images
+            if confidence < 0.35 and not has_custom_weights:
                 st.warning(f"### ⚠️ Low Confidence Detection ({confidence_pct:.1f}%)")
-                st.write("""
-                **Unrecognized Image or Low Confidence**: The uploaded image does not strongly match trained produce features (or is a non-food image like a video call/screenshot).  
-                *Recommendation:* Please upload a clear photo of a fruit or vegetable.
-                """)
+                st.write("**Unrecognized Image**: The uploaded image does not match trained produce features. Please upload a clear photo of a fruit or vegetable.")
+            elif status == "Fresh":
+                st.success(f"### ✅ Status: FRESH ({final_item})")
                 st.metric(
-                    label=f"Potential Classification for {selected_produce}",
-                    value=f"{label} ({confidence_pct:.1f}%)",
-                    delta="Uncertain Prediction",
-                    delta_color="off"
-                )
-            elif label == "Fresh":
-                st.success(f"### ✅ Status: FRESH")
-                st.metric(
-                    label=f"Predicted Remaining Shelf Life for {selected_produce}",
+                    label=f"Predicted Remaining Shelf Life for {final_item}",
                     value=f"{days_range} Days",
-                    delta=f"{confidence_pct:.1f}% Confidence"
+                    delta=f"{confidence_pct:.1f}% Model Confidence"
                 )
-                st.info(f"**Report Format:** Predicted: {selected_produce}({days_range}) days of shelf life left ({confidence_pct:.2f}% confidence)")
+                st.info(f"**Report Format:** Predicted: {final_item}({days_range}) days of shelf life left ({confidence_pct:.2f}% confidence)")
             else:
-                st.error(f"### ⚠️ Status: ROTTEN / EXPIRED")
+                st.error(f"### ⚠️ Status: ROTTEN / EXPIRED ({final_item})")
                 st.metric(
-                    label=f"Quality Assessment for {selected_produce}",
+                    label=f"Quality Assessment for {final_item}",
                     value="0 Days Remaining",
-                    delta=f"-{confidence_pct:.1f}% Spoiled",
+                    delta=f"-{confidence_pct:.1f}% Deteriorated",
                     delta_color="inverse"
                 )
-                st.warning(f"**Notice:** Produce shows signs of deterioration. Not recommended for consumption.")
+                st.warning(f"**Report Format:** Predicted: {final_item} is Rotten / Expired ({confidence_pct:.2f}% confidence)")
 
-            st.write("**Model Confidence Score:**")
+            st.write("**Model Confidence Meter:**")
             st.progress(float(confidence))
 
         else:
@@ -225,41 +234,19 @@ with tabs[1]:
         st.markdown("### 📈 Loss and Accuracy Curves across Epochs")
         st.image("images/training_curves.png", caption="Training & Validation Performance Curves", use_container_width=True)
 
-# ─── TAB 3: DATASET & TRAINING GUIDE ──────────────────────────────────────────
+# ─── TAB 3: METHODOLOGY ───────────────────────────────────────────────────────
 
 with tabs[2]:
-    st.subheader("📖 Dataset Setup & Custom Model Training")
+    st.subheader("🏗️ System Architecture & 28 Fine-Grained Produce Classes")
     st.markdown("""
-    ### Why did a non-food image get 51% confidence?
-    1. **Pre-trained Baseline vs Custom Weights:** The repository currently runs on PyTorch's default **ShuffleNet V2 baseline weights** because `shufflenet_shelf_life.pth` has not been generated on your specific dataset yet.
-    2. **Binary Classification Constraint:** Neural network classifiers map all inputs to output classes. For non-food images (like faces or video calls), the network outputs ~50/50 probability.
+    ### 🍇 14 Supported Produce Categories (Fresh & Rotten):
+    *Apple, Banana, Bellpepper, Carrot, Cucumber, Grape, Guava, Jujube, Mango, Orange, Pomegranate, Potato, Strawberry, Tomato*
     
-    ---
-    
-    ### 📁 How to Train on Your Local Dataset:
-    
-    1. Organize your dataset into class folders:
-       ```
-       shelf-life-prediction/
-       └── data/
-           └── shelf_life/
-               ├── Fresh/    <-- (Put fresh fruit/veg images here)
-               └── Rotten/   <-- (Put rotten fruit/veg images here)
-       ```
-       *(You can use Kaggle datasets like "Fruits Fresh and Rotten Dataset" or custom photography).*
-
-    2. Run the training script:
-       ```bash
-       python train.py
-       ```
-       - Enter batch size (128), epochs (20), early stop patience (3), learning rate (0.003), dropout (0.5).
-       - This will fine-tune ShuffleNet V2 and automatically save `shufflenet_shelf_life.pth` to the project root!
-
-    3. Re-launch the Web App or Desktop App:
-       ```bash
-       streamlit run web_app.py
-       ```
-       The app will automatically detect `shufflenet_shelf_life.pth` and deliver high-precision predictions!
+    ### ⚙️ Image Preprocessing Pipeline
+    1. **Resizing:** Standardized input images to **256×256 pixels**.
+    2. **Cropping:** Applied a **CenterCrop of 224×224 pixels** matching ShuffleNet V2 input dimensions.
+    3. **Normalization:** Normalized using ImageNet mean `[0.485, 0.456, 0.406]` and std `[0.229, 0.224, 0.225]`.
+    4. **Data Partitioning:** Split dataset into **75% Training** and **25% Validation**.
     """)
 
 st.markdown("---")

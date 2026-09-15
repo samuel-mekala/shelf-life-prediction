@@ -8,6 +8,7 @@ Usage:
 """
 
 import os
+import json
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
@@ -18,20 +19,21 @@ from torchvision import transforms, models
 # ─── Configuration ────────────────────────────────────────────────────────────
 
 MODEL_PATH = "shufflenet_shelf_life.pth"
-
-CLASS_NAMES = {
-    0: "Fresh",
-    1: "Rotten",
-}
+MAPPING_PATH = "class_mapping.json"
 
 SHELF_LIFE_RANGES = {
     "Tomato": "10-15",
     "Apple": "7-12",
     "Banana": "3-6",
+    "Bellpepper": "7-10",
     "Carrot": "10-14",
-    "Grapes": "5-8",
+    "Cucumber": "5-8",
+    "Grape": "5-8",
+    "Guava": "4-7",
+    "Jujube": "5-9",
     "Mango": "4-7",
     "Orange": "7-10",
+    "Pomegranate": "12-18",
     "Potato": "14-21",
     "Strawberry": "3-5",
     "General Produce": "3-7"
@@ -46,24 +48,36 @@ elif torch.backends.mps.is_available():
 else:
     device = torch.device("cpu")
 
-def load_model(num_classes=2):
+def load_model():
+    num_classes = 28
+    class_mapping = {}
+
+    if os.path.exists(MAPPING_PATH):
+        try:
+            with open(MAPPING_PATH, "r") as f:
+                mapping = json.load(f)
+                class_mapping = {int(k): v for k, v in mapping.items()}
+                num_classes = len(class_mapping)
+        except Exception:
+            pass
+
     model = models.shufflenet_v2_x1_0(weights=models.ShuffleNet_V2_X1_0_Weights.DEFAULT)
     model.fc = nn.Sequential(
         nn.Dropout(p=0.5),
         nn.Linear(model.fc.in_features, num_classes)
     )
+
     if os.path.exists(MODEL_PATH):
         try:
             model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
             print(f"Model loaded successfully from {MODEL_PATH}")
         except Exception as e:
-            print(f"Warning: Could not load state dict ({e}). Using baseline weights.")
-    else:
-        print(f"Notice: {MODEL_PATH} not found. Running with ShuffleNet V2 baseline weights.")
-    model.eval()
-    return model.to(device)
+            print(f"Warning loading weights: {e}")
 
-model = load_model(num_classes=len(CLASS_NAMES))
+    model.eval()
+    return model.to(device), class_mapping
+
+model, class_mapping = load_model()
 
 # ─── Preprocessing ────────────────────────────────────────────────────────────
 
@@ -82,7 +96,18 @@ def predict_image(image_path):
         outputs = model(tensor)
         probs = torch.softmax(outputs, dim=1).squeeze()
         conf, idx = torch.max(probs, 0)
-    return CLASS_NAMES[idx.item()], conf.item()
+    
+    raw_class = class_mapping.get(idx.item(), "general_fresh") if class_mapping else ("Fresh" if idx.item() == 0 else "Rotten")
+    
+    if "_" in raw_class:
+        parts = raw_class.split("_")
+        produce_name = parts[0].title()
+        status = parts[1].title()
+    else:
+        produce_name = "Produce"
+        status = raw_class.title()
+
+    return produce_name, status, conf.item()
 
 # ─── GUI Application ──────────────────────────────────────────────────────────
 
@@ -96,7 +121,6 @@ class ShelfLifeApp(tk.Tk):
         self._build_ui()
 
     def _build_ui(self):
-        # Header / Title
         header_frame = tk.Frame(self, bg="#ffffff")
         header_frame.pack(fill="x", pady=15)
         
@@ -108,20 +132,19 @@ class ShelfLifeApp(tk.Tk):
             fg="#1a1a1a"
         ).pack()
 
-        # Produce Item Selector Dropdown
         item_frame = tk.Frame(self, bg="#ffffff")
         item_frame.pack(pady=5)
         
         tk.Label(
             item_frame,
-            text="Produce Type: ",
+            text="Produce Selection: ",
             font=("Helvetica", 11),
             bg="#ffffff",
             fg="#444444"
         ).pack(side="left")
         
-        self.item_var = tk.StringVar(value="Tomato")
-        item_choices = list(SHELF_LIFE_RANGES.keys())
+        self.item_var = tk.StringVar(value="Auto-Detect")
+        item_choices = ["Auto-Detect"] + list(SHELF_LIFE_RANGES.keys())
         self.item_dropdown = ttk.Combobox(
             item_frame,
             textvariable=self.item_var,
@@ -131,7 +154,6 @@ class ShelfLifeApp(tk.Tk):
         )
         self.item_dropdown.pack(side="left")
 
-        # Choose Image Button
         btn_frame = tk.Frame(self, bg="#ffffff")
         btn_frame.pack(pady=10)
         
@@ -147,7 +169,6 @@ class ShelfLifeApp(tk.Tk):
             command=self._choose_image
         ).pack()
 
-        # Image Display Frame / Canvas
         self.image_frame = tk.Frame(self, width=280, height=280, bg="#f0f0f0", bd=1, relief="solid")
         self.image_frame.pack_propagate(False)
         self.image_frame.pack(pady=15)
@@ -155,7 +176,6 @@ class ShelfLifeApp(tk.Tk):
         self.img_label = tk.Label(self.image_frame, bg="#f0f0f0")
         self.img_label.pack(expand=True, fill="both")
 
-        # Result Display Box
         self.result_var = tk.StringVar(value="Predicted: Select an image to predict shelf life")
         self.result_label = tk.Label(
             self,
@@ -176,17 +196,10 @@ class ShelfLifeApp(tk.Tk):
             return
 
         self.image_path = path
-        
         img = Image.open(path).convert("RGB")
         img.thumbnail((260, 260))
         self._tk_img = ImageTk.PhotoImage(img)
         self.img_label.configure(image=self._tk_img)
-
-        filename_base = os.path.splitext(os.path.basename(path))[0].title()
-        for known_item in SHELF_LIFE_RANGES.keys():
-            if known_item.lower() in filename_base.lower():
-                self.item_var.set(known_item)
-                break
 
         self._run_prediction()
 
@@ -194,20 +207,22 @@ class ShelfLifeApp(tk.Tk):
         if not self.image_path:
             return
             
-        label, confidence = predict_image(self.image_path)
+        detected_item, status, confidence = predict_image(self.image_path)
         confidence_pct = confidence * 100
-        selected_item = self.item_var.get()
-        days_range = SHELF_LIFE_RANGES.get(selected_item, "3-7")
+        
+        selected_override = self.item_var.get()
+        final_item = detected_item if selected_override == "Auto-Detect" else selected_override
+        days_range = SHELF_LIFE_RANGES.get(final_item, "3-7")
 
-        if confidence < 0.65:
-            output_msg = f"⚠️ Low Confidence ({confidence_pct:.1f}%): Image does not strongly match produce features. Please upload a clear fruit/vegetable image."
-            self.result_label.configure(fg="#e65100") # Dark Orange
-        elif label == "Fresh":
-            output_msg = f"Predicted: {selected_item}({days_range}) days of shelf life left ({confidence_pct:.2f}% confidence)"
-            self.result_label.configure(fg="#2e7d32")  # Dark Green
+        if confidence < 0.35:
+            output_msg = f"⚠️ Low Confidence ({confidence_pct:.1f}%): Image does not strongly match produce features. Please upload a clear produce image."
+            self.result_label.configure(fg="#e65100")
+        elif status == "Fresh":
+            output_msg = f"Predicted: {final_item}({days_range}) days of shelf life left ({confidence_pct:.2f}% confidence)"
+            self.result_label.configure(fg="#2e7d32")
         else:
-            output_msg = f"Predicted: {selected_item} is Rotten / Expired ({confidence_pct:.2f}% confidence)"
-            self.result_label.configure(fg="#c62828")  # Dark Red
+            output_msg = f"Predicted: {final_item} is Rotten / Expired ({confidence_pct:.2f}% confidence)"
+            self.result_label.configure(fg="#c62828")
 
         self.result_var.set(output_msg)
 
