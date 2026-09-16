@@ -50,8 +50,10 @@ SHELF_LIFE_RANGES = {
 
 # ─── Model & Inference ────────────────────────────────────────────────────────
 
+model_mtime = os.path.getmtime(MODEL_PATH) if os.path.exists(MODEL_PATH) else 0
+
 @st.cache_resource
-def load_shufflenet_model():
+def load_shufflenet_model(mtime):
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -71,7 +73,7 @@ def load_shufflenet_model():
         except Exception:
             pass
 
-    model = models.shufflenet_v2_x1_0(weights=models.ShuffleNet_V2_X1_0_Weights.DEFAULT)
+    model = models.shufflenet_v2_x1_0()
     model.fc = nn.Sequential(
         nn.Dropout(p=0.5),
         nn.Linear(model.fc.in_features, num_classes)
@@ -88,7 +90,7 @@ def load_shufflenet_model():
     model.eval()
     return model.to(device), device, class_mapping, has_custom_weights
 
-model, device, class_mapping, has_custom_weights = load_shufflenet_model()
+model, device, class_mapping, has_custom_weights = load_shufflenet_model(model_mtime)
 
 transform = transforms.Compose([
     transforms.Resize((256, 256)),
@@ -105,27 +107,35 @@ def predict_produce(pil_image):
     with torch.no_grad():
         outputs = model(tensor)
         probs = torch.softmax(outputs, dim=1).squeeze()
-        conf, idx = torch.max(probs, 0)
+        top_probs, top_idxs = torch.topk(probs, min(2, len(probs)))
     
-    raw_class = class_mapping.get(idx.item(), "Tomato(10-15)") if class_mapping else "Tomato(10-15)"
+    top1 = top_probs[0].item()
+    top2 = top_probs[1].item() if len(top_probs) > 1 else 0.0
+    margin = top1 - top2
+    entropy = -torch.sum(probs * torch.log(probs + 1e-9)).item()
+    
+    # Robust Out-Of-Distribution (OOD) Produce Check:
+    is_valid_produce = (top1 >= 0.70) and (margin >= 0.20) and (entropy <= 1.5)
+    
+    raw_class = class_mapping.get(top_idxs[0].item(), "Tomato(10-15)") if class_mapping else "Tomato(10-15)"
     
     if raw_class == "Expired":
-        return "Expired Produce", "Expired", "0", conf.item()
+        return "Expired Produce", "Expired", "0", top1, is_valid_produce
         
     match = re.match(r"^([A-Za-z]+)\(([\d\-]+)\)$", raw_class)
     if match:
         produce_name = match.group(1).title()
         days_range = match.group(2)
-        return produce_name, "Fresh", days_range, conf.item()
+        return produce_name, "Fresh", days_range, top1, is_valid_produce
 
     if "_" in raw_class:
         parts = raw_class.split("_")
         produce_name = parts[0].title()
         status = parts[1].title()
         days_range = SHELF_LIFE_RANGES.get(produce_name, "3-7") if status.lower() == "fresh" else "0"
-        return produce_name, status, days_range, conf.item()
+        return produce_name, status, days_range, top1, is_valid_produce
 
-    return raw_class.title(), "Fresh", "3-7", conf.item()
+    return raw_class.title(), "Fresh", "3-7", top1, is_valid_produce
 
 # ─── UI Layout ────────────────────────────────────────────────────────────────
 
@@ -178,23 +188,23 @@ with tabs[0]:
         st.subheader("2. Prediction & Shelf Life Analysis")
         if image_to_process is not None:
             with st.spinner("Analyzing produce image with ShuffleNet V2..."):
-                detected_item, status, predicted_range, confidence = predict_produce(image_to_process)
+                detected_item, status, predicted_range, confidence, is_valid_produce = predict_produce(image_to_process)
                 confidence_pct = confidence * 100
                 
                 final_item = detected_item if selected_override == "Auto-Detect" else selected_override
                 days_range = predicted_range if selected_override == "Auto-Detect" else SHELF_LIFE_RANGES.get(selected_override, predicted_range)
 
-            # Strict low-confidence check: if confidence < 60%, flag non-food/OOD image
-            if confidence < 0.60:
-                st.warning(f"### ⚠️ Low Confidence Detection ({confidence_pct:.1f}%)")
+            # Strict low-confidence / non-produce check
+            if not is_valid_produce:
+                st.warning(f"### ⚠️ Unrecognized Image / Non-Produce Photo ({confidence_pct:.1f}%)")
                 st.write("""
-                **Unrecognized Image / Non-Produce Photo**: The uploaded image does not strongly match trained produce features (e.g. video call screenshots, document captures, non-food items, or background photos).  
+                **Non-Produce Photo Detected**: The uploaded image does not strongly match trained fruit or vegetable features (e.g., video meeting screenshots, faces, human photos, room backgrounds, or non-food items).  
                 *Action Required:* Please upload a clear photo of a fruit or vegetable.
                 """)
                 st.metric(
-                    label=f"Low Confidence Classification Attempt",
-                    value=f"Unrecognized ({confidence_pct:.1f}%)",
-                    delta="Requires Produce Photo",
+                    label=f"Out-of-Distribution Detection Result",
+                    value=f"Non-Produce Photo",
+                    delta=f"{confidence_pct:.1f}% Match (Below Threshold)",
                     delta_color="off"
                 )
             elif status == "Fresh":
