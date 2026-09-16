@@ -120,7 +120,7 @@ def predict_produce(pil_image):
     raw_class = class_mapping.get(top_idxs[0].item(), "Tomato(10-15)") if class_mapping else "Tomato(10-15)"
     
     if raw_class == "Expired":
-        return "Expired Produce", "Expired", "0", top1, is_valid_produce
+        return "Item", "Expired", "0", top1, is_valid_produce
         
     match = re.match(r"^([A-Za-z]+)\(([\d\-]+)\)$", raw_class)
     if match:
@@ -210,20 +210,20 @@ with tabs[0]:
             elif status == "Fresh":
                 st.success(f"### ✅ Status: FRESH ({final_item})")
                 st.metric(
-                    label=f"Predicted Remaining Shelf Life for {final_item}",
+                    label=f"Estimated Remaining Shelf Life for {final_item}",
                     value=f"{days_range} Days",
                     delta=f"{confidence_pct:.1f}% Model Confidence"
                 )
                 st.info(f"**Report Format:** Predicted: {final_item}({days_range}) days of shelf life left ({confidence_pct:.2f}% confidence)")
             else:
-                st.error(f"### ⚠️ Status: EXPIRED ({final_item})")
+                st.error("### ⚠️ Status: EXPIRED / SPOILED")
                 st.metric(
-                    label=f"Quality Assessment for {final_item}",
+                    label="Quality Assessment",
                     value="0 Days Remaining",
-                    delta=f"-{confidence_pct:.1f}% Deteriorated",
+                    delta="Spoiled / Not Safe for Consumption",
                     delta_color="inverse"
                 )
-                st.warning(f"**Report Format:** Predicted: {final_item} is Expired (0 days of shelf life left) ({confidence_pct:.2f}% confidence)")
+                st.warning(f"**Report Format:** Predicted: Item is Expired (0 days of shelf life left) ({confidence_pct:.2f}% confidence)")
 
             st.write("**Model Confidence Meter:**")
             st.progress(float(confidence))
