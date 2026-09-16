@@ -19,5 +19,6 @@ ENV/
 .vscode/
 .idea/
 
-# Large Dataset (downloaded locally)
-data/
+# Large Dataset (uncomment if ignored)
+# data/
+
