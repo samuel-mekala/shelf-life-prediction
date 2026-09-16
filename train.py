@@ -173,36 +173,61 @@ def train_model(batch_size=32, num_epochs=15, learning_rate=0.001, dropout_rate=
 
     val_dataset.dataset.transform = val_transform
 
+    # Oversample smaller classes so every category has at least 150 augmented samples
+    samples = []
+    class_counts = full_dataset.class_counts
+    for img_path, label in full_dataset.samples:
+        samples.append((img_path, label))
+        count = class_counts[label]
+        if count < 100:
+            multiplier = max(1, 150 // count)
+            for _ in range(multiplier - 1):
+                samples.append((img_path, label))
+
+    full_dataset.samples = samples
+    print(f"Balanced augmented dataset size: {len(full_dataset.samples)} samples", flush=True)
+
+    train_size = int(0.80 * len(full_dataset))
+    val_size   = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+
+    val_dataset.dataset.transform = val_transform
+
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
     val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=0)
 
     num_classes = len(full_dataset.class_names)
-    
-    # Calculate inverse class frequency weights to balance loss
-    class_counts = np.array(full_dataset.class_counts, dtype=np.float32)
-    weights = 1.0 / (class_counts + 1e-5)
-    weights = weights / weights.sum() * num_classes
-    class_weights_tensor = torch.tensor(weights, dtype=torch.float32).to(device)
 
-    model = models.shufflenet_v2_x1_0(weights=models.ShuffleNet_V2_X1_0_Weights.DEFAULT)
+    model = models.resnet50()
+    ckpt_path = "/Users/samuel/.cache/torch/hub/checkpoints/resnet50-11ad3fa6.pth"
+    if os.path.exists(ckpt_path):
+        try:
+            model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
+            print(f"Loaded local pretrained ResNet-50 weights from {ckpt_path}", flush=True)
+        except Exception as e:
+            print(f"Notice: Loading default ResNet-50 weights ({e})", flush=True)
+
+    # Stage 1: Freeze feature backbone parameters to preserve ImageNet object representations
+    for param in model.parameters():
+        param.requires_grad = False
+
     model.fc = nn.Sequential(
         nn.Dropout(p=dropout_rate),
         nn.Linear(model.fc.in_features, num_classes)
     )
     model = model.to(device)
 
-    # Label smoothing CrossEntropyLoss + AdamW for superior generalization on unseen photos
-    criterion = nn.CrossEntropyLoss(weight=class_weights_tensor, label_smoothing=0.1)
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-5)
+    # Standard unweighted CrossEntropyLoss to prevent false positive class spikes
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
+    optimizer = optim.Adam(model.fc.parameters(), lr=0.001)
 
     train_loss_values, val_loss_values = [], []
     train_acc_values,  val_acc_values  = [], []
 
-    print(f"\n--- Fine-Tuning ShuffleNet V2 on ALL {len(full_dataset)} Images ({num_classes} Classes) ---", flush=True)
+    print(f"\n--- Stage 1: Head-Only Training (Preserving Pretrained Features) ---", flush=True)
     total_batches = len(train_loader)
 
-    for epoch in range(num_epochs):
+    for epoch in range(6):
         start_time = time.time()
         model.train()
         train_loss, correct_train, total_train = 0.0, 0, 0
@@ -219,11 +244,6 @@ def train_model(batch_size=32, num_epochs=15, learning_rate=0.001, dropout_rate=
             _, predicted = torch.max(outputs, 1)
             correct_train += (predicted == labels).sum().item()
             total_train += labels.size(0)
-
-            if (i + 1) % 15 == 0 or (i + 1) == total_batches:
-                current_acc = correct_train / total_train
-                current_loss = train_loss / total_train
-                print(f"Epoch [{epoch+1}/{num_epochs}] Batch [{i+1}/{total_batches}] - Loss: {current_loss:.4f} Acc: {current_acc*100:.2f}%", flush=True)
 
         train_loss /= total_train
         train_acc = correct_train / total_train
@@ -256,10 +276,68 @@ def train_model(batch_size=32, num_epochs=15, learning_rate=0.001, dropout_rate=
 
         f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=0)
         epoch_time = time.time() - start_time
+        print(f"Stage 1 Epoch [{epoch+1}/6] ({epoch_time:.1f}s) | Train Acc: {train_acc*100:.2f}% | Val Acc: {val_acc*100:.2f}% | F1: {f1:.4f}", flush=True)
 
-        print(f"\n>> Epoch [{epoch+1}/{num_epochs}] Completed in {epoch_time:.2f}s | Train Acc: {train_acc*100:.2f}% | Val Acc: {val_acc*100:.2f}% | F1: {f1:.4f}\n", flush=True)
+    # Stage 2: Unfreeze top residual layer for fine-tuning
+    print(f"\n--- Stage 2: Fine-Tuning Top Residual Layers ---", flush=True)
+    for param in model.layer4.parameters():
+        param.requires_grad = True
 
-        scheduler.step()
+    optimizer = optim.Adam([
+        {'params': model.layer4.parameters(), 'lr': 1e-4},
+        {'params': model.fc.parameters(), 'lr': 5e-4}
+    ])
+
+    for epoch in range(4):
+        start_time = time.time()
+        model.train()
+        train_loss, correct_train, total_train = 0.0, 0, 0
+
+        for i, (inputs, labels) in enumerate(train_loader):
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item() * inputs.size(0)
+            _, predicted = torch.max(outputs, 1)
+            correct_train += (predicted == labels).sum().item()
+            total_train += labels.size(0)
+
+        train_loss /= total_train
+        train_acc = correct_train / total_train
+        train_loss_values.append(train_loss)
+        train_acc_values.append(train_acc)
+
+        # Validation
+        model.eval()
+        val_loss, correct_val, total_val = 0.0, 0, 0
+        all_labels, all_preds = [], []
+
+        with torch.no_grad():
+            for inputs, labels in val_loader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+
+                val_loss += loss.item() * inputs.size(0)
+                _, predicted = torch.max(outputs, 1)
+                correct_val += (predicted == labels).sum().item()
+                total_val += labels.size(0)
+
+                all_labels.extend(labels.cpu().numpy())
+                all_preds.extend(predicted.cpu().numpy())
+
+        val_loss /= total_val
+        val_acc = correct_val / total_val
+        val_loss_values.append(val_loss)
+        val_acc_values.append(val_acc)
+
+        f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=0)
+        epoch_time = time.time() - start_time
+        print(f"Stage 2 Epoch [{epoch+1}/4] ({epoch_time:.1f}s) | Train Acc: {train_acc*100:.2f}% | Val Acc: {val_acc*100:.2f}% | F1: {f1:.4f}", flush=True)
 
     # Plot training curves
     plt.figure(figsize=(12, 5))

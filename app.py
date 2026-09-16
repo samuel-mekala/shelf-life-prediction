@@ -61,7 +61,7 @@ def load_model():
         except Exception:
             pass
 
-    model = models.shufflenet_v2_x1_0(weights=models.ShuffleNet_V2_X1_0_Weights.DEFAULT)
+    model = models.resnet50()
     model.fc = nn.Sequential(
         nn.Dropout(p=0.5),
         nn.Linear(model.fc.in_features, num_classes)

@@ -61,7 +61,7 @@ def load_shufflenet_model(mtime):
     else:
         device = torch.device("cpu")
 
-    num_classes = 28
+    num_classes = 14
     class_mapping = {}
 
     if os.path.exists(MAPPING_PATH):
@@ -73,7 +73,7 @@ def load_shufflenet_model(mtime):
         except Exception:
             pass
 
-    model = models.shufflenet_v2_x1_0()
+    model = models.resnet50()
     model.fc = nn.Sequential(
         nn.Dropout(p=0.5),
         nn.Linear(model.fc.in_features, num_classes)
@@ -107,35 +107,45 @@ def predict_produce(pil_image):
     with torch.no_grad():
         outputs = model(tensor)
         probs = torch.softmax(outputs, dim=1).squeeze()
-        top_probs, top_idxs = torch.topk(probs, min(2, len(probs)))
+
+    parent_probs = {}
+    sub_probs = {}
     
-    top1 = top_probs[0].item()
-    top2 = top_probs[1].item() if len(top_probs) > 1 else 0.0
-    margin = top1 - top2
-    entropy = -torch.sum(probs * torch.log(probs + 1e-9)).item()
-    
-    # Robust Out-Of-Distribution (OOD) Produce Check:
-    is_valid_produce = (top1 >= 0.70) and (margin >= 0.20) and (entropy <= 1.5)
-    
-    raw_class = class_mapping.get(top_idxs[0].item(), "Tomato(10-15)") if class_mapping else "Tomato(10-15)"
-    
-    if raw_class == "Expired":
-        return "Item", "Expired", "0", top1, is_valid_produce
+    for idx in range(len(probs)):
+        cname = class_mapping.get(idx, f"Class_{idx}")
+        p_val = probs[idx].item()
         
-    match = re.match(r"^([A-Za-z]+)\(([\d\-]+)\)$", raw_class)
-    if match:
-        produce_name = match.group(1).title()
-        days_range = match.group(2)
-        return produce_name, "Fresh", days_range, top1, is_valid_produce
-
-    if "_" in raw_class:
-        parts = raw_class.split("_")
-        produce_name = parts[0].title()
-        status = parts[1].title()
-        days_range = SHELF_LIFE_RANGES.get(produce_name, "3-7") if status.lower() == "fresh" else "0"
-        return produce_name, status, days_range, top1, is_valid_produce
-
-    return raw_class.title(), "Fresh", "3-7", top1, is_valid_produce
+        if cname == "Expired":
+            parent = "Expired"
+            sub_range = "0"
+        else:
+            m = re.match(r"^([A-Za-z]+)\(([\d\-]+)\)$", cname)
+            if m:
+                parent = m.group(1).title()
+                sub_range = m.group(2)
+            elif "_" in cname:
+                parts = cname.split("_")
+                parent = parts[0].title()
+                sub_range = SHELF_LIFE_RANGES.get(parent, "3-7") if parts[1].lower() == "fresh" else "0"
+            else:
+                parent = cname.title()
+                sub_range = "3-7"
+                
+        parent_probs[parent] = parent_probs.get(parent, 0.0) + p_val
+        if parent not in sub_probs or p_val > sub_probs[parent][0]:
+            sub_probs[parent] = (p_val, sub_range)
+            
+    best_parent = max(parent_probs, key=parent_probs.get)
+    best_parent_conf = parent_probs[best_parent]
+    best_sub_range = sub_probs[best_parent][1]
+    
+    # Valid produce check
+    is_valid_produce = (best_parent_conf >= 0.40)
+    
+    if best_parent == "Expired":
+        return "Item", "Expired", "0", best_parent_conf, is_valid_produce
+    else:
+        return best_parent, "Fresh", best_sub_range, best_parent_conf, is_valid_produce
 
 # ─── UI Layout ────────────────────────────────────────────────────────────────
 
