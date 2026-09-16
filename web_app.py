@@ -184,11 +184,11 @@ with tabs[0]:
                 final_item = detected_item if selected_override == "Auto-Detect" else selected_override
                 days_range = predicted_range if selected_override == "Auto-Detect" else SHELF_LIFE_RANGES.get(selected_override, predicted_range)
 
-            # Strict low-confidence check: if confidence < 50%, flag non-food/OOD image
-            if confidence < 0.50:
+            # Strict low-confidence check: if confidence < 60%, flag non-food/OOD image
+            if confidence < 0.60:
                 st.warning(f"### ⚠️ Low Confidence Detection ({confidence_pct:.1f}%)")
                 st.write("""
-                **Unrecognized Image / Non-Produce Photo**: The uploaded image does not strongly match trained produce features (e.g. document screenshots, text, UI captures, or non-food photos).  
+                **Unrecognized Image / Non-Produce Photo**: The uploaded image does not strongly match trained produce features (e.g. video call screenshots, document captures, non-food items, or background photos).  
                 *Action Required:* Please upload a clear photo of a fruit or vegetable.
                 """)
                 st.metric(
