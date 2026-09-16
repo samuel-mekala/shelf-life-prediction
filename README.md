@@ -3,11 +3,13 @@
 > **Capstone Project** · VIT-AP University · Dec 2024  
 > **Team:** Satyala Murali Karthik · **Mekala Samuel** · Yelakanti Ramu  
 > **Guide:** Dr. S. Kalyani · School of Electronics Engineering  
-> **Repository:** [github.com/samuel-mekala/shelf-life-prediction](https://github.com/samuel-mekala/shelf-life-prediction)
+> **Repository:** [github.com/samuel-mekala/shelf-life-prediction](https://github.com/samuel-mekala/shelf-life-prediction)  
+> **🌐 Live Web Application:** **[shelf-life-predictor.streamlit.app](https://shelf-life-predictor.streamlit.app/)**
 
+[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-shelf--life--predictor.streamlit.app-FF4B4B?style=for-the-badge&logo=streamlit)](https://shelf-life-predictor.streamlit.app/)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?style=flat-square&logo=pytorch)](https://pytorch.org)
-[![Streamlit](https://img.shields.io/badge/Streamlit-Web%20App-FF4B4B?style=flat-square&logo=streamlit)](https://streamlit.io)
+[![Streamlit](https://img.shields.io/badge/Streamlit-Web%20App-FF4B4B?style=flat-square&logo=streamlit)](https://shelf-life-predictor.streamlit.app/)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=github-actions)](/.github/workflows/ci.yml)
 
 ---
