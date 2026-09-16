@@ -127,18 +127,21 @@ class FullProduceDataset(Dataset):
             image = self.transform(image)
         return image, label
 
-# ─── Data Transformations (with Robust Augmentation) ─────────────────────────
+# ─── Data Transformations (Heavy Augmentation for High Generalization) ────────
 
 train_transform = transforms.Compose([
     transforms.Resize((256, 256)),
-    transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
-    transforms.RandomHorizontalFlip(),
+    transforms.RandomResizedCrop(224, scale=(0.5, 1.0), ratio=(0.75, 1.33)),
+    transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomVerticalFlip(p=0.2),
-    transforms.RandomRotation(20),
-    transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.1),
+    transforms.RandomRotation(30),
+    transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+    transforms.RandomAffine(degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+    transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406],
                          std=[0.229, 0.224, 0.225]),
+    transforms.RandomErasing(p=0.2, scale=(0.02, 0.2)),
 ])
 
 val_transform = transforms.Compose([
@@ -151,7 +154,7 @@ val_transform = transforms.Compose([
 
 # ─── Main Training Pipeline ───────────────────────────────────────────────────
 
-def train_model(batch_size=128, num_epochs=6, learning_rate=0.003, dropout_rate=0.5, dataset_dir='Data'):
+def train_model(batch_size=32, num_epochs=15, learning_rate=0.001, dropout_rate=0.5, dataset_dir='Data'):
     if not os.path.exists(dataset_dir):
         print(f"Error: Dataset directory '{dataset_dir}' not found.", flush=True)
         return None
@@ -188,9 +191,10 @@ def train_model(batch_size=128, num_epochs=6, learning_rate=0.003, dropout_rate=
     )
     model = model.to(device)
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = StepLR(optimizer, step_size=3, gamma=0.2)
+    # Label smoothing CrossEntropyLoss + AdamW for superior generalization on unseen photos
+    criterion = nn.CrossEntropyLoss(weight=class_weights_tensor, label_smoothing=0.1)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-5)
 
     train_loss_values, val_loss_values = [], []
     train_acc_values,  val_acc_values  = [], []
