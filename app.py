@@ -89,6 +89,8 @@ transform = transforms.Compose([
                          std=[0.229, 0.224, 0.225]),
 ])
 
+import re
+
 def predict_image(image_path):
     img = Image.open(image_path).convert("RGB")
     tensor = transform(img).unsqueeze(0).to(device)
@@ -97,17 +99,25 @@ def predict_image(image_path):
         probs = torch.softmax(outputs, dim=1).squeeze()
         conf, idx = torch.max(probs, 0)
     
-    raw_class = class_mapping.get(idx.item(), "general_fresh") if class_mapping else ("Fresh" if idx.item() == 0 else "Rotten")
+    raw_class = class_mapping.get(idx.item(), "Tomato(10-15)") if class_mapping else "Tomato(10-15)"
     
+    if raw_class == "Expired":
+        return "Expired Produce", "Expired", "0", conf.item()
+        
+    match = re.match(r"^([A-Za-z]+)\(([\d\-]+)\)$", raw_class)
+    if match:
+        produce_name = match.group(1).title()
+        days_range = match.group(2)
+        return produce_name, "Fresh", days_range, conf.item()
+
     if "_" in raw_class:
         parts = raw_class.split("_")
         produce_name = parts[0].title()
         status = parts[1].title()
-    else:
-        produce_name = "Produce"
-        status = raw_class.title()
+        days_range = "10-15" if status.lower() == "fresh" else "0"
+        return produce_name, status, days_range, conf.item()
 
-    return produce_name, status, conf.item()
+    return raw_class.title(), "Fresh", "3-7", conf.item()
 
 # ─── GUI Application ──────────────────────────────────────────────────────────
 
@@ -214,8 +224,8 @@ class ShelfLifeApp(tk.Tk):
         final_item = detected_item if selected_override == "Auto-Detect" else selected_override
         days_range = SHELF_LIFE_RANGES.get(final_item, "3-7")
 
-        if confidence < 0.35:
-            output_msg = f"⚠️ Low Confidence ({confidence_pct:.1f}%): Image does not strongly match produce features. Please upload a clear produce image."
+        if confidence < 0.50:
+            output_msg = f"⚠️ Low Confidence ({confidence_pct:.1f}%): Image does not appear to be a recognized fruit/vegetable. Please upload a produce photo."
             self.result_label.configure(fg="#e65100")
         elif status == "Fresh":
             output_msg = f"Predicted: {final_item}({days_range}) days of shelf life left ({confidence_pct:.2f}% confidence)"

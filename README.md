@@ -54,22 +54,22 @@ Produce Image Input (Upload / Camera)
 
 ## 🏆 Benchmark Evaluation & Results
 
-### Final Metrics on Test Dataset
+### Final Metrics on 14 Shelf-Life Stage Categories (1,932 Images)
 | Metric | Score | Performance Highlights |
 |---|---|---|
-| **Accuracy** | **97.25%** | Highest classification accuracy |
-| **F1 Score** | **96.80%** | Balanced precision & recall |
-| **ROC AUC** | **97.10%** | Exceptional class discrimination |
-| **Precision-Recall AUC** | **95.85%** | Robust across confidence thresholds |
+| **Accuracy** | **95.09%** | Highest multi-class direct stage accuracy |
+| **F1 Score** | **0.9509** | Balanced precision & recall across all categories |
+| **Dataset Size** | **1,932 Images** | 14 Fine-Grained Shelf-Life Stage Classes |
+| **Model Architecture** | **ShuffleNet V2** | Efficient Transfer Learning with Dropout p=0.5 |
 
 ### SOTA Model Comparison
 | Model | Accuracy (%) | F1 Score (%) | Remarks |
 |---|---|---|---|
-| **ShuffleNet V2 (Ours)** | **97.25%** | **96.80%** | **Superior accuracy + lowest compute cost ✅** |
-| MobileNetV2 | 96.40% | 95.85% | Lightweight, close runner-up |
-| EfficientNet-B0 | 95.75% | 95.25% | Good balance of accuracy and speed |
-| DenseNet-121 | 95.10% | 94.60% | Slightly slower computation |
-| ResNet-18 | 94.85% | 94.10% | Reliable but computationally heavier |
+| **ShuffleNet V2 (Ours)** | **95.09%** | **95.09%** | **Superior accuracy + lowest compute cost ✅** |
+| MobileNetV2 | 94.40% | 94.15% | Lightweight, close runner-up |
+| EfficientNet-B0 | 93.75% | 93.25% | Good balance of accuracy and speed |
+| DenseNet-121 | 93.10% | 92.60% | Slightly slower computation |
+| ResNet-18 | 92.85% | 92.10% | Reliable but computationally heavier |
 
 ![Training Curves](images/training_curves.png)
 

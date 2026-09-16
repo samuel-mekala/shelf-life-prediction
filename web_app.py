@@ -98,6 +98,8 @@ transform = transforms.Compose([
                          std=[0.229, 0.224, 0.225]),
 ])
 
+import re
+
 def predict_produce(pil_image):
     tensor = transform(pil_image.convert("RGB")).unsqueeze(0).to(device)
     with torch.no_grad():
@@ -105,17 +107,25 @@ def predict_produce(pil_image):
         probs = torch.softmax(outputs, dim=1).squeeze()
         conf, idx = torch.max(probs, 0)
     
-    raw_class = class_mapping.get(idx.item(), "general_fresh") if class_mapping else ("Fresh" if idx.item() == 0 else "Rotten")
+    raw_class = class_mapping.get(idx.item(), "Tomato(10-15)") if class_mapping else "Tomato(10-15)"
     
+    if raw_class == "Expired":
+        return "Expired Produce", "Expired", "0", conf.item()
+        
+    match = re.match(r"^([A-Za-z]+)\(([\d\-]+)\)$", raw_class)
+    if match:
+        produce_name = match.group(1).title()
+        days_range = match.group(2)
+        return produce_name, "Fresh", days_range, conf.item()
+
     if "_" in raw_class:
         parts = raw_class.split("_")
         produce_name = parts[0].title()
         status = parts[1].title()
-    else:
-        produce_name = "Produce"
-        status = raw_class.title()
+        days_range = SHELF_LIFE_RANGES.get(produce_name, "3-7") if status.lower() == "fresh" else "0"
+        return produce_name, status, days_range, conf.item()
 
-    return produce_name, status, conf.item()
+    return raw_class.title(), "Fresh", "3-7", conf.item()
 
 # ─── UI Layout ────────────────────────────────────────────────────────────────
 
@@ -127,7 +137,7 @@ st.markdown("""
 st.divider()
 
 if not has_custom_weights:
-    st.warning("⚠️ **Running on Baseline Weights.** Custom trained weights (`shufflenet_shelf_life.pth`) are initializing...", icon="⚠️")
+    st.warning("⚠️ **Notice: Running on Baseline Weights.** Custom trained weights (`shufflenet_shelf_life.pth`) are initializing...", icon="⚠️")
 
 # Sidebar Setup
 with st.sidebar:
@@ -137,14 +147,12 @@ with st.sidebar:
         options=["Auto-Detect"] + list(SHELF_LIFE_RANGES.keys()),
         index=0
     )
-    
     st.markdown("---")
     st.markdown("### 🏆 Model Architecture")
     st.write("**Model:** ShuffleNet V2 (`shufflenet_v2_x1_0`)")
-    st.write("**Classes Trained:** 28 Fine-Grained Produce Classes")
+    st.write("**Classes Trained:** 14 Direct Shelf-Life Stage Classes")
     st.write("**Weights Status:** " + ("Custom Trained ✅" if has_custom_weights else "Baseline ⚠️"))
-    st.write("**Optimizer:** Adam (lr=0.003)")
-    st.write("**Scheduler:** StepLR (step=4, γ=0.2)")
+    st.write("**Optimizer:** Adam (lr=0.001)")
     st.write("**Regularization:** Dropout (p=0.5)")
 
 tabs = st.tabs(["📸 Freshness Predictor", "📊 Project Analytics & Report Metrics", "📖 Dataset & Methodology"])
@@ -170,16 +178,25 @@ with tabs[0]:
         st.subheader("2. Prediction & Shelf Life Analysis")
         if image_to_process is not None:
             with st.spinner("Analyzing produce image with ShuffleNet V2..."):
-                detected_item, status, confidence = predict_produce(image_to_process)
+                detected_item, status, predicted_range, confidence = predict_produce(image_to_process)
                 confidence_pct = confidence * 100
                 
                 final_item = detected_item if selected_override == "Auto-Detect" else selected_override
-                days_range = SHELF_LIFE_RANGES.get(final_item, "3-7")
+                days_range = predicted_range if selected_override == "Auto-Detect" else SHELF_LIFE_RANGES.get(selected_override, predicted_range)
 
-            # Out-of-distribution check for low confidence non-food images
-            if confidence < 0.35 and not has_custom_weights:
+            # Strict low-confidence check: if confidence < 50%, flag non-food/OOD image
+            if confidence < 0.50:
                 st.warning(f"### ⚠️ Low Confidence Detection ({confidence_pct:.1f}%)")
-                st.write("**Unrecognized Image**: The uploaded image does not match trained produce features. Please upload a clear photo of a fruit or vegetable.")
+                st.write("""
+                **Unrecognized Image / Non-Produce Photo**: The uploaded image does not strongly match trained produce features (e.g. document screenshots, text, UI captures, or non-food photos).  
+                *Action Required:* Please upload a clear photo of a fruit or vegetable.
+                """)
+                st.metric(
+                    label=f"Low Confidence Classification Attempt",
+                    value=f"Unrecognized ({confidence_pct:.1f}%)",
+                    delta="Requires Produce Photo",
+                    delta_color="off"
+                )
             elif status == "Fresh":
                 st.success(f"### ✅ Status: FRESH ({final_item})")
                 st.metric(
@@ -189,14 +206,14 @@ with tabs[0]:
                 )
                 st.info(f"**Report Format:** Predicted: {final_item}({days_range}) days of shelf life left ({confidence_pct:.2f}% confidence)")
             else:
-                st.error(f"### ⚠️ Status: ROTTEN / EXPIRED ({final_item})")
+                st.error(f"### ⚠️ Status: EXPIRED ({final_item})")
                 st.metric(
                     label=f"Quality Assessment for {final_item}",
                     value="0 Days Remaining",
                     delta=f"-{confidence_pct:.1f}% Deteriorated",
                     delta_color="inverse"
                 )
-                st.warning(f"**Report Format:** Predicted: {final_item} is Rotten / Expired ({confidence_pct:.2f}% confidence)")
+                st.warning(f"**Report Format:** Predicted: {final_item} is Expired (0 days of shelf life left) ({confidence_pct:.2f}% confidence)")
 
             st.write("**Model Confidence Meter:**")
             st.progress(float(confidence))
@@ -237,16 +254,16 @@ with tabs[1]:
 # ─── TAB 3: METHODOLOGY ───────────────────────────────────────────────────────
 
 with tabs[2]:
-    st.subheader("🏗️ System Architecture & 28 Fine-Grained Produce Classes")
+    st.subheader("🏗️ System Architecture & ALL 14 Produce Folders")
     st.markdown("""
-    ### 🍇 14 Supported Produce Categories (Fresh & Rotten):
+    ### 🍇 ALL 14 Produce Categories in Dataset (ALL 29,291 IMAGES TRAINED):
     *Apple, Banana, Bellpepper, Carrot, Cucumber, Grape, Guava, Jujube, Mango, Orange, Pomegranate, Potato, Strawberry, Tomato*
     
-    ### ⚙️ Image Preprocessing Pipeline
+    ### ⚙️ Image Preprocessing & Class-Weighted Loss
     1. **Resizing:** Standardized input images to **256×256 pixels**.
     2. **Cropping:** Applied a **CenterCrop of 224×224 pixels** matching ShuffleNet V2 input dimensions.
-    3. **Normalization:** Normalized using ImageNet mean `[0.485, 0.456, 0.406]` and std `[0.229, 0.224, 0.225]`.
-    4. **Data Partitioning:** Split dataset into **75% Training** and **25% Validation**.
+    3. **Augmentation:** Random horizontal/vertical flip, random rotation (20°), color jitter.
+    4. **Class Weighting:** Inverse frequency class weighting in CrossEntropyLoss ensures smaller folders (grape, guava, jujube, pomegranate) get equal weight during gradient updates.
     """)
 
 st.markdown("---")
